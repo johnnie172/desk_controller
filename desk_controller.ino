@@ -6,10 +6,10 @@
 hd44780_I2Cexp lcd; // declare lcd object: auto locate & config display for hd44780 chip
 
 unsigned long lastTimeBlink = 0;
-long int      timeToBlink   = 3000;
-String strings[2] = { "", "                "};
+long int timeToBlink = 3000;
+String strings[2] = {"", "                "};
 int blink = 0;
-int index = 0;
+int stringsIndex = 0;
 
 // table consts
 const float minHeight = 741.00; // 74.1cm
@@ -58,7 +58,66 @@ float float_one_point_round(float value)
 
 String heightToString(float height)
 {
-      return String(float_one_point_round(height / 10));
+      String newHeight = String(float_one_point_round(height / 10));
+      newHeight.remove(newHeight.length() - 1, 1);
+      return newHeight;
+}
+
+bool checkButtonPress()
+{
+      if (
+          !digitalRead(button1Pin) ||
+          !digitalRead(button2Pin) ||
+          !digitalRead(button3Pin) ||
+          !digitalRead(button4Pin) ||
+          !digitalRead(button5Pin))
+            return true;
+      return false;
+}
+
+void onLoopBtnClick()
+{
+      // read and print btns values
+      button1State = !digitalRead(button1Pin); // green
+      button2State = !digitalRead(button2Pin);
+      button3State = !digitalRead(button3Pin);
+      button4State = !digitalRead(button4Pin);
+      button5State = !digitalRead(button5Pin); // red
+
+      // click on up
+      if (button1State == 1)
+      {
+            manualUp();
+      }
+      // click on down
+      if (button5State == 1)
+      {
+            manualDown();
+      }
+
+      // click on m1
+      if (button2State == 1)
+      {
+            goToHeight(m1Height);
+      }
+
+      // click on save
+      if (button3State == 1)
+      {
+            saveToMem();
+      }
+
+      // click on m2
+      if (button4State == 1)
+      {
+            goToHeight(m2Height);
+      }
+
+      // no button selected and no auto move
+      if (button1State == 0 && button5State == 0 && (button2State = !1 || button4State != 1))
+      {
+            manualMoveStopped();
+      }
 }
 
 void updateEepromHeight(int adr, float height)
@@ -66,24 +125,8 @@ void updateEepromHeight(int adr, float height)
       EEPROM.put(adr, height);
 }
 
-// void printSecRow(float height = currentHeight, String customString = "")
-// {
-//       String newString;
-//       if (customString != ""){
-//             newString = customString;
-//       }
-//       else{
-//             newString = String("Current:  " + heightToString(height));
-//       }
-//       // TODO: print only if needed
-//             strings[0] = newString;
-//             lcd.setCursor(0, 1);
-//             lcd.print("                 ");
-//             lcd.setCursor(0, 1);
-//             lcd.print(strings[index]);
-// }
-
-void clearSecRow(){
+void clearSecRow()
+{
       lcd.setCursor(0, 1);
       lcd.print(strings[1]);
 }
@@ -91,45 +134,53 @@ void clearSecRow(){
 void printSecRow(String customString, int index = 0, float height = currentHeight)
 {
       if (customString == "")
-            customString = String("Current:  " + heightToString(height));
-      // TODO: print only if needed
-            if (index == 0 && strings[index] != customString)
-            {
-                  strings[index] = customString;
-                  clearSecRow();
-                  lcd.setCursor(0, 1);
-                  lcd.print(strings[index]);
-            }
-            if (index == 1)
-                  clearSecRow();
+            customString = String("Current:   " + heightToString(height));
+      if (index == 0 && strings[index] != customString)
+      {
+            strings[index] = customString;
+            clearSecRow();
+            lcd.setCursor(0, 1);
+            lcd.print(strings[index]);
+      }
+      if (index == 1)
+            clearSecRow();
 }
 
-void blinkIfNeeded(long int timeToBlink = timeToBlink, int blinkRate = 5){
+void printMem()
+{
+      lcd.setCursor(0, 0);
+      lcd.print(strings[1]);
+      lcd.setCursor(0, 0);
+      lcd.print("M1 " + heightToString(m1Height) + " " + "M2 " + heightToString(m2Height));
+}
+
+void blinkIfNeeded(long int timeToBlink = timeToBlink, int blinkRate = 5)
+{
       // check if blinking screen needed
       unsigned long time = millis() - lastTimeBlink;
 
       if (lastTimeBlink != 0 && time <= timeToBlink)
       {
-            if (time % blinkRate == 0){
-                  blink +=1;
-                  index = blink % 2;
+            if (time % blinkRate == 0)
+            {
+                  blink += 1;
+                  stringsIndex = blink % 2;
                   delay(1);
-                  printSecRow(strings[0] + " ", index);
-
+                  printSecRow(strings[0] + " ", stringsIndex);
             }
       }
-      if (time >= lastTimeBlink) lastTimeBlink = 0;
-      index = 0 ;
+      if (time >= lastTimeBlink)
+            lastTimeBlink = 0;
+      stringsIndex = 0;
 }
 
 void saveToMem()
 {
-      // TODO: save eeprom
       long int start = millis();
-      lastTimeBlink  = start;
+      lastTimeBlink = start;
       while (millis() - start < 5000)
       {
-            blinkIfNeeded(3000, 400);
+            blinkIfNeeded(4500, 400);
             if (digitalRead(button2Pin) == 0)
             {
                   m1Height = currentHeight;
@@ -147,60 +198,59 @@ void saveToMem()
             if (digitalRead(button3Pin) == 0)
                   break;
       }
+      printMem();
 }
 
 void goToHeight(float height)
 {
+      // do nothing if we close to the destination or not in the mx/min values
       if (height > maxHeight || height < minHeight || (currentHeight - 3 <= height && height <= currentHeight + 3))
             return;
-      printSecRow("Going:  " + heightToString(height));
 
+      // check direction and start auto move
+      printSecRow("Going:  " + heightToString(height));
       if (currentHeight > height)
       {
             Serial.println("down to ");
-            Serial.print(height);
-            goDown(height);
+            Serial.println(height);
+            startAutoMove(height, -1, relay2Pin);
       }
       else
       {
             Serial.println("up to ");
-            Serial.print(height);
-            goUp(height);
+            Serial.println(height);
+            startAutoMove(height, 1, relay1Pin);
       }
+
+      // set current height to eeprom and screen
       updateEepromHeight(eep_height_adr, currentHeight);
 }
 
-void goUp(float height)
+void startAutoMove(float height, int dir, int relayPin)
 {
-      move = true;
-      long int start = millis();
-      int millisToMove = (height - currentHeight) / upSpeed * 1000;
+      // calculate how much time we need to move
+      int millisToMove = (dir == 1) ? (height - currentHeight) / upSpeed * 1000 : (currentHeight - height) / downSpeed * 1000;
       long int movingTime;
-      digitalWrite(relay1Pin, LOW);
-      while (millis() - start < millisToMove)
-      {
-            movingTime = millis() - start;
-      }
-      // TODO: can be less them min / max heights
-      currentHeight = currentHeight + movingTime / 100 * upSpeed / 10;
-      digitalWrite(relay1Pin, HIGH);
-      printSecRow("", 0, currentHeight);
-}
 
-void goDown(float height)
-{
+      // start timer and open relay
       move = true;
+      digitalWrite(relayPin, LOW);
       long int start = millis();
-      int millisToMove = (currentHeight - height) / downSpeed * 1000;
-      long int movingTime;
-      digitalWrite(relay2Pin, LOW);
+      delay(250);
+
+      // sleep until we reached time or interrupted
       while (millis() - start < millisToMove)
       {
             movingTime = millis() - start;
+            if (checkButtonPress())
+                  break;
       }
-      currentHeight = currentHeight - movingTime / 100 * downSpeed / 10;
-      digitalWrite(relay2Pin, HIGH);
-      printSecRow("", 0, currentHeight);
+
+      // close relay and update current height
+      move = false;
+      digitalWrite(relayPin, HIGH);
+      currentHeight = (dir == 1) ? currentHeight + movingTime / 100 * upSpeed / 10 : currentHeight - movingTime / 100 * downSpeed / 10;
+      delay(250);
 }
 
 void manualUp()
@@ -227,44 +277,28 @@ void manualMoveStopped()
 {
       long int endTime;
       move = false;
-      if (timeDown > 0 || timeUp > 0){
-            endTime    = millis();
+      if (timeDown > 0 || timeUp > 0)
+      {
+            endTime = millis();
             movingTime = 0;
             updateEepromHeight(eep_height_adr, currentHeight);
       }
       if (timeDown > 0)
       {
             digitalWrite(relay2Pin, HIGH);
-            movingTime    = endTime - timeDown;
-            nextHeight    = currentHeight - movingTime / 100 * downSpeed / 10;
+            movingTime = endTime - timeDown;
+            nextHeight = currentHeight - movingTime / 100 * downSpeed / 10;
             currentHeight = max(nextHeight, minHeight);
-            timeDown   = 0;
+            timeDown = 0;
       }
       if (timeUp > 0)
       {
             digitalWrite(relay1Pin, HIGH);
-            movingTime    = endTime - timeUp;
-            nextHeight    = currentHeight + movingTime / 100 * upSpeed / 10;
+            movingTime = endTime - timeUp;
+            nextHeight = currentHeight + movingTime / 100 * upSpeed / 10;
             currentHeight = min(nextHeight, maxHeight);
-            timeUp     = 0;
+            timeUp = 0;
       }
-      printSecRow("", 0, currentHeight);
-}
-// TODO: delete this
-bool dir = false;
-void test()
-{
-      long int start = millis();
-      int currentPin = relay1Pin;
-      if (dir)
-            currentPin = relay2Pin;
-      digitalWrite(currentPin, LOW);
-      while (millis() - start < 10000)
-      {
-      }
-      digitalWrite(currentPin, HIGH);
-      Serial.println(millis() - start);
-      dir = !dir;
 }
 
 void setup()
@@ -292,57 +326,15 @@ void setup()
       digitalWrite(relay1Pin, HIGH);
       digitalWrite(relay2Pin, HIGH);
 
-      // initialize LCD with number of columns and rows:
+      // initialize LCD and Print memory:
       lcd.begin(20, 4);
-
-      // Print a message to the LCD
-      lcd.print(" Johnnie  Desk!");
-      printSecRow("", 0, currentHeight);
+      printMem();
 }
 
 void loop()
 {
-            printSecRow("", 0, currentHeight);
-            blinkIfNeeded();
-
-            // read and print btns values
-            button1State = !digitalRead(button1Pin); // green
-            button2State = !digitalRead(button2Pin);
-            button3State = !digitalRead(button3Pin);
-            button4State = !digitalRead(button4Pin);
-            button5State = !digitalRead(button5Pin); // red
-
-            delay(50);
-
-            // click on up
-            if (button1State == 1)
-            {
-                  manualUp();
-            }
-            // click on down
-            if (button5State == 1)
-            {
-                  manualDown();
-            }
-
-            if (button2State == 1)
-            {
-                  goToHeight(m1Height);
-            }
-
-            if (button3State == 1)
-            {
-                  saveToMem();
-            }
-
-            if (button4State == 1)
-            {
-                  goToHeight(m2Height);
-            }
-
-            // no button selected
-            if (button1State == 0 && button5State == 0 && (button2State = !1 || button4State != 1))
-            {
-                  manualMoveStopped();
-            }
-      }
+      printSecRow("", 0, currentHeight);
+      blinkIfNeeded();
+      onLoopBtnClick();
+      delay(50);
+}
