@@ -26,7 +26,6 @@ const int btnM2Pin = 5;
 const int btnDownPin = 6; // red
 const int buttons[5] = {btnUpPin, btnM1Pin, btnSavePin, btnM2Pin, btnDownPin};
 
-
 // init buttons state
 int button1State;
 int button2State;
@@ -49,7 +48,6 @@ long int movingTime;
 long int timeUp;
 long int timeDown;
 float currentHeight;
-float nextHeight;
 float m1Height;
 float m2Height;
 
@@ -67,7 +65,8 @@ String heightToString(float height)
 
 bool checkButtonPress()
 {
-      for (int pin : buttons) {
+      for (int pin : buttons)
+      {
             if (!digitalRead(pin))
                   return true;
       }
@@ -166,6 +165,7 @@ void saveToMem()
 {
       long int start = millis();
       lastTimeBlink = start;
+      delay(250);
       while (millis() - start < 5000)
       {
             blinkIfNeeded(4500, 400);
@@ -186,6 +186,7 @@ void saveToMem()
             if (digitalRead(btnSavePin) == 0)
                   break;
       }
+      printSecRow(strings[0] + " ", stringsIndex);
       printMem();
 }
 
@@ -237,7 +238,7 @@ void startAutoMove(float height, int dir, int relayPin)
       // close relay and update current height
       move = false;
       digitalWrite(relayPin, HIGH);
-      currentHeight = (dir == 1) ? currentHeight + movingTime / 100 * upSpeed / 10 : currentHeight - movingTime / 100 * downSpeed / 10;
+      currentHeight = (dir == 1) ? min(currentHeight + movingTime / 100 * upSpeed / 10, maxHeight) : max(currentHeight - movingTime / 100 * downSpeed / 10, minHeight);
       delay(250);
 }
 
@@ -271,8 +272,7 @@ void handleManualStop(int relayPin, long int &time, int dir)
       time = 0;
 
       // calculate height by time and save
-      nextHeight = (dir == 1) ? currentHeight + movingTime / 100 * movingSpeed / 10 : currentHeight - movingTime / 100 * movingSpeed / 10;
-      currentHeight = (dir == 1) ? min(nextHeight, maxHeight) : max(nextHeight, minHeight);
+      currentHeight = (dir == 1) ? min(currentHeight + movingTime / 100 * movingSpeed / 10, maxHeight) : max(currentHeight - movingTime / 100 * movingSpeed / 10, minHeight);
       updateEepromHeight(eep_height_adr, currentHeight);
 }
 
