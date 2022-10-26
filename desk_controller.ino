@@ -15,7 +15,7 @@ int stringsIndex = 0;
 // table consts
 const float minHeight = 741.00; // 74.1cm
 const float maxHeight = 1247.00;
-const float upSpeed = 25.5; // 25.5mm per second
+const float upSpeed = 25.4; // 25.5mm per second
 const float downSpeed = 28.8;
 
 // init buttons pin
@@ -238,7 +238,7 @@ void startAutoMove(float height, int dir, int relayPin)
       // close relay and update current height
       move = false;
       digitalWrite(relayPin, HIGH);
-      currentHeight = (dir == 1) ? min(currentHeight + movingTime / 100 * upSpeed / 10, maxHeight) : max(currentHeight - movingTime / 100 * downSpeed / 10, minHeight);
+      currentHeight = (dir == 1) ? min(currentHeight + movingTime / 100.00 * upSpeed / 10.00, maxHeight) : max(currentHeight - movingTime / 100.00 * downSpeed / 10.00, minHeight);
       delay(250);
 }
 
@@ -272,7 +272,7 @@ void handleManualStop(int relayPin, long int &time, int dir)
       time = 0;
 
       // calculate height by time and save
-      currentHeight = (dir == 1) ? min(currentHeight + movingTime / 100 * movingSpeed / 10, maxHeight) : max(currentHeight - movingTime / 100 * movingSpeed / 10, minHeight);
+      currentHeight = (dir == 1) ? min(currentHeight + movingTime / 100.00 * movingSpeed / 10.00, maxHeight) : max(currentHeight - movingTime / 100.00 * movingSpeed / 10.00, minHeight);
       updateEepromHeight(eep_height_adr, currentHeight);
 }
 
