@@ -27,11 +27,7 @@ const int btnDownPin = 6; // red
 const int buttons[5] = {btnUpPin, btnM1Pin, btnSavePin, btnM2Pin, btnDownPin};
 
 // init buttons state
-int button1State;
-int button2State;
-int button3State;
-int button4State;
-int button5State;
+int button1State, button2State, button3State, button4State, button5State;
 
 // relay
 int relay1Pin = 9;
@@ -43,13 +39,9 @@ int eep_m1_adr = 4;
 int eep_m2_adr = 7;
 
 // movement variables
-bool move = false;
-long int movingTime;
-long int timeUp;
-long int timeDown;
-float currentHeight;
-float m1Height;
-float m2Height;
+bool manualMove = false;
+long int movingTime, timeUp, timeDown;
+float currentHeight, m1Height, m2Height;
 
 float float_one_point_round(float value)
 {
@@ -63,47 +55,42 @@ String heightToString(float height)
       return newHeight;
 }
 
-bool checkButtonPress()
+int checkButtonPress()
 {
       for (int pin : buttons)
       {
             if (!digitalRead(pin))
-                  return true;
+                  return pin;
       }
-      return false;
+      return 0;
 }
 
 void onLoopBtnClick()
 {
-      // read and print btns values
-      button1State = !digitalRead(btnUpPin); // green
-      button2State = !digitalRead(btnM1Pin);
-      button3State = !digitalRead(btnSavePin);
-      button4State = !digitalRead(btnM2Pin);
-      button5State = !digitalRead(btnDownPin); // red
-
-      // click on up
-      if (button1State == 1)
+      switch (checkButtonPress())
+      {
+      case btnUpPin:
             manualUp();
-
-      // click on down
-      if (button5State == 1)
-            manualDown();
-
-      // click on m1
-      if (button2State == 1)
+            break;
+      case btnM1Pin:
             goToHeight(m1Height);
-
-      // click on save
-      if (button3State == 1)
+            break;
+      case btnSavePin:
             saveToMem();
-
-      // click on m2
-      if (button4State == 1)
+            break;
+      case btnM2Pin:
             goToHeight(m2Height);
+            break;
+      case btnDownPin:
+            manualDown();
+            break;
+
+      default:
+            break;
+      }
 
       // no button selected and no auto move
-      if (button1State == 0 && button5State == 0 && (button2State = !1 || button4State != 1))
+      if (!digitalRead(btnUpPin) == 0 && timeUp || !digitalRead(btnDownPin) == 0 && timeDown)
             manualMoveStopped();
 }
 
@@ -165,35 +152,35 @@ void saveToMem()
 {
       long int start = millis();
       lastTimeBlink = start;
-      delay(250);
+      delay(200);
       while (millis() - start < 5000)
       {
             blinkIfNeeded(4500, 400);
-            if (digitalRead(btnM1Pin) == 0)
+            int pressedBtnPin = checkButtonPress();
+            if (pressedBtnPin == btnM1Pin)
             {
                   m1Height = currentHeight;
                   updateEepromHeight(eep_m1_adr, m1Height);
                   Serial.println(m1Height);
-                  break;
             }
-            if (digitalRead(btnM2Pin) == 0)
+            if (pressedBtnPin == btnM2Pin)
             {
                   m2Height = currentHeight;
                   updateEepromHeight(eep_m2_adr, m2Height);
                   Serial.println(m2Height);
-                  break;
             }
-            if (digitalRead(btnSavePin) == 0)
+            if (pressedBtnPin)
                   break;
       }
       printSecRow(strings[0] + " ", stringsIndex);
       printMem();
+      delay(50);
 }
 
 void goToHeight(float height)
 {
       // do nothing if we close to the destination or not in the mx/min values
-      if (height > maxHeight || height < minHeight || (currentHeight - 3 <= height && height <= currentHeight + 3))
+      if (height > maxHeight || height < minHeight || (currentHeight - 2 <= height && height <= currentHeight + 2))
             return;
 
       // check direction and start auto move
@@ -219,24 +206,22 @@ void startAutoMove(float height, int dir, int relayPin)
 {
       // calculate how much time we need to move
       int millisToMove = (dir == 1) ? (height - currentHeight) / upSpeed * 1000 : (currentHeight - height) / downSpeed * 1000;
-      long int movingTime;
-
-      // start timer and open relay
-      move = true;
-      digitalWrite(relayPin, LOW);
-      long int start = millis();
       delay(250);
 
+      // start timer and open relay
+      digitalWrite(relayPin, LOW);
+      long int start = millis();
+      long int movingTime = millis() - start;
+
       // sleep until we reached time or interrupted
-      while (millis() - start < millisToMove)
+      while (movingTime < millisToMove)
       {
             movingTime = millis() - start;
-            if (checkButtonPress())
+            if (checkButtonPress() > 0)
                   break;
       }
 
       // close relay and update current height
-      move = false;
       digitalWrite(relayPin, HIGH);
       currentHeight = (dir == 1) ? min(currentHeight + movingTime / 100.00 * upSpeed / 10.00, maxHeight) : max(currentHeight - movingTime / 100.00 * downSpeed / 10.00, minHeight);
       delay(250);
@@ -244,7 +229,7 @@ void startAutoMove(float height, int dir, int relayPin)
 
 void manualUp()
 {
-      move = true;
+      manualMove = true;
       digitalWrite(relay1Pin, LOW);
       if (timeUp == 0)
             timeUp = millis();
@@ -252,16 +237,27 @@ void manualUp()
 
 void manualDown()
 {
-      move = true;
+      manualMove = true;
       digitalWrite(relay2Pin, LOW);
       if (timeDown == 0)
             timeDown = millis();
 }
 
+void manualMoveStopped()
+{
+      // on down movement stop
+      if (timeDown > 0)
+            handleManualStop(relay2Pin, timeDown, -1);
+
+      // on up movement stop
+      if (timeUp > 0)
+            handleManualStop(relay1Pin, timeUp, 1);
+}
+
 void handleManualStop(int relayPin, long int &time, int dir)
 {
       // init variables
-      move = false;
+      manualMove = false;
       movingTime = 0;
       float movingSpeed = (dir == 1) ? upSpeed : downSpeed;
 
@@ -274,17 +270,6 @@ void handleManualStop(int relayPin, long int &time, int dir)
       // calculate height by time and save
       currentHeight = (dir == 1) ? min(currentHeight + movingTime / 100.00 * movingSpeed / 10.00, maxHeight) : max(currentHeight - movingTime / 100.00 * movingSpeed / 10.00, minHeight);
       updateEepromHeight(eep_height_adr, currentHeight);
-}
-
-void manualMoveStopped()
-{
-      // on down movement stop
-      if (timeDown > 0)
-            handleManualStop(relay2Pin, timeDown, -1);
-
-      // on up movement stop
-      if (timeUp > 0)
-            handleManualStop(relay1Pin, timeUp, 1);
 }
 
 void setup()
