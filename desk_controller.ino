@@ -15,7 +15,7 @@ int stringsIndex = 0;
 // table consts
 const float minHeight = 741.00; // 74.1cm
 const float maxHeight = 1247.00;
-const float upSpeed = 25.4; // 25.5mm per second
+const float upSpeed = 25.4; // 25.4mm per second
 const float downSpeed = 28.8;
 
 // init buttons pin
