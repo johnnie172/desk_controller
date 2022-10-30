@@ -14,7 +14,7 @@ int stringsIndex = 0;
 
 // table consts
 const float minHeight = 741.00; // 74.1cm
-const float maxHeight = 1247.00;
+const float maxHeight = 1245.00;
 const float upSpeed = 25.4; // 25.4mm per second
 const float downSpeed = 28.8;
 
@@ -39,7 +39,7 @@ int eep_m1_adr = 4;
 int eep_m2_adr = 7;
 
 // movement variables
-bool manualMove = false;
+bool manualMovement = false;
 long int movingTime, timeUp, timeDown;
 float currentHeight, m1Height, m2Height;
 
@@ -70,7 +70,7 @@ void onLoopBtnClick()
       switch (checkButtonPress())
       {
       case btnUpPin:
-            manualUp();
+            MoveManually(1, timeUp);
             break;
       case btnM1Pin:
             goToHeight(m1Height);
@@ -82,16 +82,17 @@ void onLoopBtnClick()
             goToHeight(m2Height);
             break;
       case btnDownPin:
-            manualDown();
+            MoveManually(-1, timeDown);
             break;
 
       default:
             break;
       }
+}
 
-      // no button selected and no auto move
-      if (!digitalRead(btnUpPin) == 0 && timeUp || !digitalRead(btnDownPin) == 0 && timeDown)
-            manualMoveStopped();
+float calculateHight(int dir, int movingTime)
+{
+      return (dir == 1) ? min(currentHeight + movingTime / 100.00 * upSpeed / 10.00, maxHeight) : max(currentHeight - movingTime / 100.00 * downSpeed / 10.00, minHeight);
 }
 
 void updateEepromHeight(int adr, float height)
@@ -184,17 +185,14 @@ void goToHeight(float height)
             return;
 
       // check direction and start auto move
-      printSecRow("Going:  " + heightToString(height));
       if (currentHeight > height)
       {
-            Serial.println("down to ");
-            Serial.println(height);
+            printSecRow("DOWN to   " + heightToString(height));
             startAutoMove(height, -1, relay2Pin);
       }
       else
       {
-            Serial.println("up to ");
-            Serial.println(height);
+            printSecRow("UP to     " + heightToString(height));
             startAutoMove(height, 1, relay1Pin);
       }
 
@@ -223,52 +221,45 @@ void startAutoMove(float height, int dir, int relayPin)
 
       // close relay and update current height
       digitalWrite(relayPin, HIGH);
-      currentHeight = (dir == 1) ? min(currentHeight + movingTime / 100.00 * upSpeed / 10.00, maxHeight) : max(currentHeight - movingTime / 100.00 * downSpeed / 10.00, minHeight);
+      currentHeight = calculateHight(dir, movingTime);
       delay(250);
 }
 
-void manualUp()
+void MoveManually(int dir, long int &time)
 {
-      manualMove = true;
-      digitalWrite(relay1Pin, LOW);
-      if (timeUp == 0)
-            timeUp = millis();
+      // for the first click - open relay, set manualMovement
+      if (time == 0)
+      {
+            time = millis();
+            manualMovement = true;
+            digitalWrite((dir == 1) ? relay1Pin : relay2Pin, LOW);
+      }
+      else
+      {
+            // while manualMovement calculate new height
+            long int movingTime = millis() - time;
+            currentHeight = calculateHight(dir, movingTime);
+            time = millis();
+      }
 }
 
-void manualDown()
+void isManualMoveStopped()
 {
-      manualMove = true;
-      digitalWrite(relay2Pin, LOW);
-      if (timeDown == 0)
-            timeDown = millis();
-}
-
-void manualMoveStopped()
-{
-      // on down movement stop
-      if (timeDown > 0)
+      // if down/up movement stopped
+      if (digitalRead(btnDownPin) && timeDown > 0)
             handleManualStop(relay2Pin, timeDown, -1);
-
-      // on up movement stop
-      if (timeUp > 0)
+      if (digitalRead(btnUpPin) && timeUp > 0)
             handleManualStop(relay1Pin, timeUp, 1);
 }
 
 void handleManualStop(int relayPin, long int &time, int dir)
 {
-      // init variables
-      manualMove = false;
-      movingTime = 0;
-      float movingSpeed = (dir == 1) ? upSpeed : downSpeed;
-
-      // stop relay and calculate time of movement
-      long int endTime = millis();
+      // stop relay and set variables to false
+      manualMovement = false;
       digitalWrite(relayPin, HIGH);
-      movingTime = endTime - time;
       time = 0;
 
-      // calculate height by time and save
-      currentHeight = (dir == 1) ? min(currentHeight + movingTime / 100.00 * movingSpeed / 10.00, maxHeight) : max(currentHeight - movingTime / 100.00 * movingSpeed / 10.00, minHeight);
+      // save to eeprom
       updateEepromHeight(eep_height_adr, currentHeight);
 }
 
@@ -285,11 +276,8 @@ void setup()
       Serial.println("EEPROM m2 height = " + String(m2Height));
 
       // init buttons pullup mode
-      pinMode(btnUpPin, INPUT_PULLUP);
-      pinMode(btnM1Pin, INPUT_PULLUP);
-      pinMode(btnSavePin, INPUT_PULLUP);
-      pinMode(btnM2Pin, INPUT_PULLUP);
-      pinMode(btnDownPin, INPUT_PULLUP);
+      for (int pin : buttons)
+            pinMode(pin, INPUT_PULLUP);
 
       // init relay to open
       pinMode(relay1Pin, OUTPUT);
@@ -307,5 +295,6 @@ void loop()
       printSecRow("", 0, currentHeight);
       blinkIfNeeded();
       onLoopBtnClick();
+      isManualMoveStopped();
       delay(50);
 }
