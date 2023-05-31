@@ -5,6 +5,12 @@
 
 hd44780_I2Cexp lcd; // declare lcd object: auto locate & config display for hd44780 chip
 
+// init current measurement variables
+const uint8_t dcPin = A0;
+const float dcSkips = 0.185;
+const float minMoveCurrent = 0.9;
+bool isMoving = false;
+
 // init blinking variables
 unsigned long lastTimeBlink = 0;
 long int timeToBlink = 3000;
@@ -15,8 +21,8 @@ int stringsIndex = 0;
 // table consts
 const float minHeight = 741.00; // 74.1cm
 const float maxHeight = 1245.00;
-const float upSpeed = 25.4; // 25.4mm per second
-const float downSpeed = 28.8;
+const float upSpeed = 24.50; // 25.4mm per second
+const float downSpeed = 28.50;
 
 // init buttons pin
 const int btnUpPin = 2; // green
@@ -25,9 +31,6 @@ const int btnSavePin = 4;
 const int btnM2Pin = 5;
 const int btnDownPin = 6; // red
 const int buttons[5] = {btnUpPin, btnM1Pin, btnSavePin, btnM2Pin, btnDownPin};
-
-// init buttons state
-int button1State, button2State, button3State, button4State, button5State;
 
 // relay
 int relay1Pin = 9;
@@ -40,7 +43,7 @@ int eep_m2_adr = 7;
 
 // movement variables
 bool manualMovement = false;
-long int movingTime, timeUp, timeDown;
+long int startTime, endTime, movingTime, movingTimeTemp, timeUp, timeDown;
 float currentHeight, m1Height, m2Height;
 
 float float_one_point_round(float value)
@@ -90,7 +93,7 @@ void onLoopBtnClick()
       }
 }
 
-float calculateHight(int dir, int movingTime)
+float calculateHeight(int dir, int movingTime)
 {
       return (dir == 1) ? min(currentHeight + movingTime / 100.00 * upSpeed / 10.00, maxHeight) : max(currentHeight - movingTime / 100.00 * downSpeed / 10.00, minHeight);
 }
@@ -162,13 +165,11 @@ void saveToMem()
             {
                   m1Height = currentHeight;
                   updateEepromHeight(eep_m1_adr, m1Height);
-                  Serial.println(m1Height);
             }
             if (pressedBtnPin == btnM2Pin)
             {
                   m2Height = currentHeight;
                   updateEepromHeight(eep_m2_adr, m2Height);
-                  Serial.println(m2Height);
             }
             if (pressedBtnPin)
                   break;
@@ -221,7 +222,7 @@ void startAutoMove(float height, int dir, int relayPin)
 
       // close relay and update current height
       digitalWrite(relayPin, HIGH);
-      currentHeight = calculateHight(dir, movingTime);
+      currentHeight = calculateHeight(dir, movingTime);
       delay(250);
 }
 
@@ -230,17 +231,15 @@ void MoveManually(int dir, long int &time)
       // for the first click - open relay, set manualMovement
       if (time == 0)
       {
-            time = millis();
             manualMovement = true;
             digitalWrite((dir == 1) ? relay1Pin : relay2Pin, LOW);
-      }
-      else
-      {
-            // while manualMovement calculate new height
-            long int movingTime = millis() - time;
-            currentHeight = calculateHight(dir, movingTime);
             time = millis();
+            return;
       }
+      // while manualMovement calculate new height
+      long int movingTime = millis() - time;
+      time = millis();
+      currentHeight = calculateHeight(dir, movingTime);
 }
 
 void isManualMoveStopped()
@@ -261,6 +260,52 @@ void handleManualStop(int relayPin, long int &time, int dir)
 
       // save to eeprom
       updateEepromHeight(eep_height_adr, currentHeight);
+}
+
+float readCurrent()
+{
+      unsigned int x = 0;
+      float AcsValue = 0.0, Samples = 0.0, AvgAcs = 0.0, AcsValueF = 0.0;
+
+      for (int x = 0; x < 5; x++)
+      {                                   // Get 3 samples
+            AcsValue = analogRead(dcPin); // Read current sensor values
+            Samples = Samples + AcsValue; // Add samples together
+            delay(2);                     // let ADC settle before next sample 3ms
+      }
+      AvgAcs = Samples / 5.0; // Taking Average of Samples
+      AcsValueF = (2.5 - (AvgAcs * (5.0 / 1024.0))) / 0.185;
+      Serial.println(AcsValueF);
+      return AcsValueF;
+      // return (2.5 - (analogRead(dcPin) * (5.0 / 1024.0))) / dcSkips;
+}
+
+bool checkIfMoving()
+{
+      if (
+          readCurrent() > minMoveCurrent)
+            return true;
+      return false;
+}
+
+void updateStartTime()
+{
+      if (isMoving && startTime == 0)
+      {
+            endTime = 0;
+            startTime = millis();
+      }
+      if (!isMoving && startTime)
+      {
+            endTime = millis();
+            calculateMovingTime();
+            startTime = 0;
+      }
+}
+
+void calculateMovingTime()
+{
+      movingTimeTemp = endTime - startTime;
 }
 
 void setup()
@@ -297,4 +342,10 @@ void loop()
       onLoopBtnClick();
       isManualMoveStopped();
       delay(50);
+      isMoving = checkIfMoving();
+      updateStartTime();
+      if (movingTimeTemp > 0) {
+            Serial.println(movingTimeTemp);
+            movingTimeTemp = 0;
+      }
 }
